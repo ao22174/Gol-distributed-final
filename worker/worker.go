@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"math/rand"
 	"net"
 	"net/rpc"
@@ -10,6 +11,7 @@ import (
 )
 
 var workerQuit = make(chan bool)
+var iteration = 1
 
 //the bread and butter of the worker, calculates the next state of the Game Of Life
 func calculateNextState(startY, endY int, world [][]byte) [][]byte {
@@ -80,6 +82,18 @@ func (s *GameOfLifeOperations) Update(req stubs.Request, res *stubs.Response) (e
 	world := req.World
 	var newHeight = req.EndY - req.StartY
 
+	if req.ImageHeight == 16 && req.Turns == 100 {
+		println(fmt.Sprintf("This is what is recieved on turn %v:", iteration))
+		for i := 0; i < len(world); i++ {
+			println()
+			for j := 0; j < len(world[i]); j++ {
+				print(fmt.Sprintf("(%v)", world[i][j]))
+			}
+		}
+		println()
+
+	}
+
 	res.WorkSlice = make([][]byte, newHeight)
 	for i := 0; i < newHeight; i++ {
 		res.WorkSlice[i] = make([]byte, len(world[i]))
@@ -94,6 +108,19 @@ func (s *GameOfLifeOperations) Update(req stubs.Request, res *stubs.Response) (e
 			readWorld := partWorld[i][j]
 			res.WorkSlice[i][j] = readWorld
 		}
+	}
+
+	if req.ImageHeight == 16 && req.Turns == 100 {
+		println(fmt.Sprintf("This is what is recieved on turn %v:", iteration))
+		for i := 0; i < len(res.WorkSlice); i++ {
+			println()
+			for j := 0; j < len(res.WorkSlice[i]); j++ {
+				print(fmt.Sprintf("(%v)", res.WorkSlice[i][j]))
+			}
+		}
+		iteration += 1
+		println()
+
 	}
 
 	return
