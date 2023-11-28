@@ -61,7 +61,7 @@ type Operations struct{}
 
 func (s *Operations) Run(req stubs.Request, res *stubs.Response) (err error) {
 	p := stubs.Parameters{Turns: req.Turns, Threads: req.Threads, ImageWidth: req.ImageWidth, ImageHeight: req.ImageHeight}
-
+	cTurn = 0
 	world := req.World
 
 	cWorld = make([][]byte, p.ImageWidth)
@@ -69,17 +69,6 @@ func (s *Operations) Run(req stubs.Request, res *stubs.Response) (err error) {
 		cWorld[i] = make([]byte, p.ImageHeight)
 	}
 
-	res.World = make([][]byte, p.ImageWidth)
-	for i := range world {
-		res.World[i] = make([]byte, p.ImageHeight)
-	}
-
-	for i := 0; i < p.ImageHeight; i++ {
-		for j := 0; j < p.ImageWidth; j++ {
-			readWorld := req.World[i][j]
-			res.World[i][j] = readWorld
-		}
-	}
 	//
 	//IF IT IS A SINGLE THREAD
 	//
@@ -103,28 +92,20 @@ func (s *Operations) Run(req stubs.Request, res *stubs.Response) (err error) {
 
 				//WE CALL TO THE FIRST CLIENT AND MAKE AN RPC CALL FOR UPDATING THE WORLD BY 1 TURN
 				clients[0].Call(stubs.GameOfLifeUpdate, workReq, workRes)
+
 				mt.Lock()
 				cTurn += 1
-				res.TurnsCompleted = cTurn
 				for i := 0; i < p.ImageHeight; i++ {
 					for j := 0; j < p.ImageWidth; j++ {
 						readWorld := workRes.WorkSlice[i][j]
 						world[i][j] = readWorld
 						cWorld[i][j] = readWorld
-						res.World[i][j] = readWorld
 					}
 				}
 				mt.Unlock()
 			}
 		}
 
-		// AREA OF ERROR AREA OF ERROR
-		//
-		//
-		//
-		//
-		//THIS IS WHEN THERE ARE MULTIPLE THREADS
-		//MAKES WORKER CHANNELS FOR EACH INDIVIDUAL PROCESSES
 	} else {
 
 		//DEFINES A CHANNEL FOR EACH WORKER TO PASS THEIR WORK IN
@@ -134,10 +115,10 @@ func (s *Operations) Run(req stubs.Request, res *stubs.Response) (err error) {
 			works = append(works, make(chan [][]byte))
 		}
 		println(works)
-
 		////THIS IS WHERE THE TURNS WILL CONSTANTLY ITERATE UNTIL IT FINISHES
 	turnloop2:
 		for turn := 0; turn < p.Turns; turn++ {
+
 			select {
 			case <-quitting:
 				break turnloop2
@@ -158,14 +139,16 @@ func (s *Operations) Run(req stubs.Request, res *stubs.Response) (err error) {
 						EndY := (i + 1) * p.ImageHeight / p.Threads
 
 						workerValue := i
-						go func(worker int) {
-							workReq := stubs.Request{World: world, Turns: turn, EndY: EndY, StartY: StartY, Worker: worker}
-							workRes := new(stubs.Response)
 
+						go func(worker int) {
+							workReq := stubs.Request{World: world, Turns: p.Turns, EndY: EndY, StartY: StartY, Worker: worker}
+							workRes := new(stubs.Response)
 							clients[worker].Call(stubs.GameOfLifeUpdate, workReq, workRes)
 
 							works[worker] <- workRes.WorkSlice
+
 						}(workerValue)
+
 					}
 					mt.Lock()
 					for i := 0; i < p.Threads; i++ {
@@ -177,25 +160,25 @@ func (s *Operations) Run(req stubs.Request, res *stubs.Response) (err error) {
 
 					mt.Lock()
 					cTurn += 1
-					res.TurnsCompleted = cTurn
-
 					for i := 0; i < p.ImageHeight; i++ {
 						for j := 0; j < p.ImageWidth; j++ {
 							readWorld := world[i][j]
 							cWorld[i][j] = readWorld
-							res.World[i][j] = readWorld
 						}
 					}
 					mt.Unlock()
 
 					/// NON DIVISIBLE WORLD
 				} else { // cannot be fully divided, e.g. p.Threads=3.
+					splitRemainder := p.ImageHeight % p.Threads
+					pEndY := 0
 					for i := range works {
-						if i != p.Threads-1 { // workers except last one
-							StartY := i * p.ImageHeight / p.Threads
-							EndY := (i + 1) * p.ImageHeight / p.Threads
+						if splitRemainder > 0 { //Workers with an extra layer if the number of workers doesnt Divide the number of worlds
+							pHeight := p.ImageHeight/p.Threads + 1
+							StartY := pEndY
+							EndY := pEndY + pHeight
 							workerValue := i
-
+							splitRemainder -= 1
 							go func(worker int) {
 								workReq := stubs.Request{World: world, Turns: turn, EndY: EndY, StartY: StartY, Worker: worker}
 								workRes := new(stubs.Response)
@@ -204,12 +187,13 @@ func (s *Operations) Run(req stubs.Request, res *stubs.Response) (err error) {
 
 								works[worker] <- workRes.WorkSlice
 							}(workerValue)
-
-						} else { // last worker have to work more
-							StartY := i * p.ImageHeight / p.Threads
-							EndY := p.ImageHeight
+							pEndY = EndY
+						} else { //The Workers that dont have an extra layer
+							pHeight := p.ImageHeight / p.Threads
+							StartY := pEndY
+							EndY := pEndY + pHeight
 							workerValue := i
-
+							splitRemainder -= 1
 							go func(worker int) {
 								workReq := stubs.Request{World: world, Turns: turn, EndY: EndY, StartY: StartY, Worker: worker}
 								workRes := new(stubs.Response)
@@ -218,6 +202,7 @@ func (s *Operations) Run(req stubs.Request, res *stubs.Response) (err error) {
 
 								works[worker] <- workRes.WorkSlice
 							}(workerValue)
+							pEndY = EndY
 						}
 					}
 
@@ -228,13 +213,10 @@ func (s *Operations) Run(req stubs.Request, res *stubs.Response) (err error) {
 					world = world2
 					mt.Lock()
 					cTurn += 1
-					res.TurnsCompleted = cTurn
-
 					for i := 0; i < p.ImageHeight; i++ {
 						for j := 0; j < p.ImageWidth; j++ {
 							readWorld := world[i][j]
 							cWorld[i][j] = readWorld
-							res.World[i][j] = readWorld
 						}
 					}
 					mt.Unlock()
@@ -243,21 +225,13 @@ func (s *Operations) Run(req stubs.Request, res *stubs.Response) (err error) {
 			}
 		}
 	}
-	println(fmt.Sprintf("at the end of the program for %vx%vx%v :", p.ImageWidth, p.ImageHeight, p.Turns))
-	println(world)
-
+	res.TurnsCompleted = cTurn
+	res.World = world
 	res.Alive = calculateAliveCells(p, world)
 	/// END OF MULTIPLE THREAD LOOP
+
 	return
 }
-
-// AREA OF ERROR AREA OF ERROR
-//
-//
-//
-//
-//THIS IS WHEN THERE ARE MULTIPLE THREADS
-//MAKES WORKER CHANNELS FOR EACH INDIVIDUAL PROCESSES
 
 func (s *Operations) Quit(req stubs.Request, res *stubs.Response) (err error) {
 	quitting <- true
@@ -298,7 +272,6 @@ func (s *Operations) RetrieveCurrentData(req stubs.Request, res *stubs.Response)
 	res.Alive = calculateAliveCells(p, res.World)
 	res.AliveCount = len(calculateAliveCells(p, res.World))
 	res.TurnsCompleted = retrievedTurn
-
 	return
 
 }
@@ -314,6 +287,7 @@ func main() {
 
 	serverAddresses := []string{
 		//todo REPLACE EVERY ADDRESS HERE WITH AN AWS ADDRESS INSTEAD
+		"52.23.171.244:8031",
 		"127.0.0.1:8031",
 		"127.0.0.1:8032",
 		"127.0.0.1:8033",
@@ -321,7 +295,7 @@ func main() {
 		"127.0.0.1:8035",
 		"127.0.0.1:8036",
 		"127.0.0.1:8037",
-		"127.0.0.1:8038",
+		//"127.0.0.1:8038",
 		// Add more server addresses as needed
 	}
 
@@ -329,12 +303,12 @@ func main() {
 		client, _ := rpc.Dial("tcp", serverAddresses[i])
 		if isConnected(client) {
 			println("connected")
+			clients = append(clients, *client)
 		} else {
-			println("badcode")
+			println(fmt.Sprintf("failed connection with %v"), serverAddresses[i])
 		}
-		clients = append(clients, *client)
 	}
-
+	println(fmt.Sprintf("There are %v workers connected", len(clients)))
 	go func() {
 	serverLoop:
 		for {
@@ -350,3 +324,4 @@ func main() {
 	rpc.Accept(listener)
 	return
 }
+
