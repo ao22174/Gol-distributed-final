@@ -76,7 +76,6 @@ type GameOfLifeOperations struct {
 // Update THIS IS THE UPDATE FUNCTION, THE BREAD AND BUTTER OF THE SYSTEM
 func (s *GameOfLifeOperations) Update(req stubs.Request, res *stubs.Response) (err error) {
 	res.WorkSlice = calculateNextState(req.StartY, req.EndY, req.World)
-	println(req.Turns)
 	return
 }
 
