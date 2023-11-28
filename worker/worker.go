@@ -75,27 +75,8 @@ type GameOfLifeOperations struct {
 
 // Update THIS IS THE UPDATE FUNCTION, THE BREAD AND BUTTER OF THE SYSTEM
 func (s *GameOfLifeOperations) Update(req stubs.Request, res *stubs.Response) (err error) {
-
-	//SETS EACH VARIABLE UPON CALLING FOR USE IN THE PROGRAM
-	world := req.World
-	var newHeight = req.EndY - req.StartY
-
-	res.WorkSlice = make([][]byte, newHeight)
-	for i := 0; i < newHeight; i++ {
-		res.WorkSlice[i] = make([]byte, len(world[i]))
-	}
-	res.Worker = req.Worker
-
-	//THE WORLD WILL BE UPDATED VIA THIS FUNCTION
-	partWorld := calculateNextState(req.StartY, req.EndY, world)
-
-	for i := 0; i < newHeight; i++ {
-		for j := 0; j < len(world[i]); j++ {
-			readWorld := partWorld[i][j]
-			res.WorkSlice[i][j] = readWorld
-		}
-	}
-
+	res.WorkSlice = calculateNextState(req.StartY, req.EndY, req.World)
+	println(req.Turns)
 	return
 }
 
