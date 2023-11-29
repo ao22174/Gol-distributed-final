@@ -1,15 +1,14 @@
 package gol
 
 import (
-	"flag"
 	"fmt"
 	"net/rpc"
 	"time"
 	"uk.ac.bris.cs/gameoflife/stubs"
 )
 
-//set as a global variable as it is only being run once
-var server = flag.String("server", "127.0.0.1:8040", "IP:port string to connect to as server")
+//Broker address
+var broker = "127.0.0.1:8040"
 
 type distributorChannels struct {
 	events     chan<- Event
@@ -23,6 +22,7 @@ type distributorChannels struct {
 
 //This Ticker function is constantly running when a GOL state is being calculated, will only stop once all the turns have finished
 func tickerFunc(p Params, c distributorChannels, client *rpc.Client, done chan bool, request stubs.Request) {
+	var turns int
 	request2 := stubs.Request{
 		Turns:       p.Turns,
 		ImageHeight: p.ImageHeight,
@@ -66,13 +66,14 @@ loop:
 				c.ioFilename <- outFilename
 				response2 := new(stubs.Response)
 				client.Call(stubs.Retrieve, request, response2)
+				turns = response2.TurnsCompleted
 				for i := 0; i < p.ImageHeight; i++ {
 					for j := 0; j < p.ImageWidth; j++ {
 						writeWorld := response2.World[i][j]
 						c.ioOutput <- writeWorld
 					}
 				}
-				c.events <- StateChange{response2.TurnsCompleted, Quitting}
+				c.events <- StateChange{turns, Quitting}
 				done <- true
 				client.Call(stubs.Quit, request, response2)
 			case 's':
@@ -88,10 +89,10 @@ loop:
 						c.ioOutput <- writeWorld
 					}
 				}
-
 			case 'k':
 				response2 := new(stubs.Response)
 				client.Call(stubs.Retrieve, request, response2)
+				turns = response2.TurnsCompleted
 				var outFilename = fmt.Sprintf("%vx%vx%v", p.ImageWidth, p.ImageHeight, p.Turns)
 				c.ioCommand <- ioOutput
 				c.ioFilename <- outFilename
@@ -101,22 +102,21 @@ loop:
 						c.ioOutput <- writeWorld
 					}
 				}
-				c.events <- StateChange{response2.TurnsCompleted, Quitting}
+				c.events <- StateChange{turns, Quitting}
 				done <- true
 				client.Call(stubs.SuperQuit, request, response2)
 
 			case 'p':
-				response2 := new(stubs.Response)
-				client.Call(stubs.Retrieve, request, response2)
-
+				responseP := new(stubs.Response)
+				client.Call(stubs.Retrieve, request, responseP)
 				if pause == false {
-					c.events <- StateChange{response2.TurnsCompleted, Paused}
-					client.Call(stubs.Pause, request, response2)
+					turns = responseP.TurnsCompleted
+					c.events <- StateChange{turns, Paused}
+					client.Call(stubs.Pause, request, responseP)
 					pause = true
 				} else if pause == true {
-
-					c.events <- StateChange{response2.TurnsCompleted - 1, Executing}
-					client.Call(stubs.Pause, request, response2)
+					c.events <- StateChange{turns, Executing}
+					client.Call(stubs.Pause, request, responseP)
 					pause = false
 				}
 			}
@@ -131,9 +131,8 @@ loop:
 func distributor(p Params, c distributorChannels) {
 	done := make(chan bool, 1)
 	turn := 0
-	flag.Parse()
-	fmt.Println("Server: ", *server)
-	client, _ := rpc.Dial("tcp", *server)
+	fmt.Println("Server: ", broker)
+	client, _ := rpc.Dial("tcp", broker)
 	defer client.Close()
 
 	world := make([][]byte, p.ImageWidth)
@@ -180,6 +179,5 @@ func distributor(p Params, c distributorChannels) {
 	// Close the channel to stop the SDL goroutine gracefully. Removing may cause deadlock.
 	done <- true
 	close(c.events)
-	println("events closed")
 
 }
